@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	corev1 "k8s.io/api/core/v1"
 	"strconv"
 
 	"k8s.io/klog/v2"
@@ -34,6 +36,7 @@ import (
 	commonconst "github.com/kubeedge/kubeedge/common/constants"
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1beta1"
 	crdClientset "github.com/kubeedge/kubeedge/pkg/client/clientset/versioned"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // DeviceStatus is structure to patch device status
@@ -53,7 +56,8 @@ type UpstreamController struct {
 	crdClient    crdClientset.Interface
 	messageLayer messagelayer.MessageLayer
 	// message channel
-	deviceStatusChan chan model.Message
+	deviceStatusChan    chan model.Message
+	deviceDiscoveryChan chan model.Message
 
 	// downstream controller to update device status in cache
 	dc *DownstreamController
@@ -64,11 +68,17 @@ func (uc *UpstreamController) Start() error {
 	klog.Info("Start upstream devicecontroller")
 
 	uc.deviceStatusChan = make(chan model.Message, config.Config.Buffer.UpdateDeviceStatus)
+	uc.deviceDiscoveryChan = make(chan model.Message, config.Config.Buffer.UpdateDeviceStatus)
 	go uc.dispatchMessage()
 
 	for i := 0; i < int(config.Config.Load.UpdateDeviceStatusWorkers); i++ {
 		go uc.updateDeviceStatus()
 	}
+
+	for i := 0; i < int(config.Config.Load.UpdateDeviceStatusWorkers); i++ {
+		go uc.createDeviceDiscovery()
+	}
+
 	return nil
 }
 
@@ -98,6 +108,8 @@ func (uc *UpstreamController) dispatchMessage() {
 		switch resourceType {
 		case constants.ResourceTypeTwinEdgeUpdated:
 			uc.deviceStatusChan <- msg
+		case constants.ResourceTypeDeviceDiscovery:
+			uc.deviceDiscoveryChan <- msg
 		case constants.ResourceTypeMembershipDetail:
 		default:
 			klog.Warningf("Message: %s, with resource type: %s not intended for device controller", msg.GetID(), resourceType)
@@ -214,6 +226,86 @@ func (uc *UpstreamController) unmarshalDeviceStatusMessage(msg model.Message) (*
 		return nil, err
 	}
 	return twinUpdate, nil
+}
+
+func (uc *UpstreamController) createDeviceDiscovery() {
+	for {
+		select {
+		case <-beehiveContext.Done():
+			klog.Info("Stop createDeviceDiscovery")
+			return
+		case msg := <-uc.deviceDiscoveryChan:
+			klog.Infof("Message: %s, operation is: %s, and resource is: %s", msg.GetID(), msg.GetOperation(), msg.GetResource())
+			msgDevice, err := uc.unmarshalDeviceDiscoveryMessage(msg)
+			if err != nil {
+				klog.Warningf("Unmarshall failed due to error %v", err)
+				continue
+			}
+			deviceID, err := messagelayer.GetDeviceID(msg.GetResource())
+			if err != nil {
+				klog.Warning("Failed to get device id")
+				continue
+			}
+
+			body := &v1beta1.Device{
+				TypeMeta: v1.TypeMeta{
+					Kind:       "Device",
+					APIVersion: "v1beta1",
+				},
+				ObjectMeta: v1.ObjectMeta{
+					Name: msgDevice.Name,
+				},
+				Spec: v1beta1.DeviceSpec{
+					DeviceModelRef: &corev1.LocalObjectReference{Name: msgDevice.ModelName},
+					NodeName:       msgDevice.NodeName,
+					Protocol: v1beta1.ProtocolConfig{
+						ProtocolName: msgDevice.ProtocolName,
+						ConfigData:   &v1beta1.CustomizedValue{Data: msgDevice.ConfigData},
+					},
+					Properties: msgDevice.Properties,
+				},
+			}
+			_, err = uc.crdClient.DevicesV1beta1().Devices("default").Create(context.TODO(), body, v1.CreateOptions{})
+			if err != nil {
+				klog.Errorf("Failed to create device %v, err: %v", deviceID, err)
+				continue
+			}
+			//send confirm message to edge twin
+			resMsg := model.NewMessage(msg.GetID())
+			nodeID, err := messagelayer.GetNodeID(msg)
+			if err != nil {
+				klog.Warningf("Message: %s process failure, get node id failed with error: %s", msg.GetID(), err)
+				continue
+			}
+			resource, err := messagelayer.BuildResourceForDevice(nodeID, "discovery", "")
+			if err != nil {
+				klog.Warningf("Message: %s process failure, build message resource failed with error: %s", msg.GetID(), err)
+				continue
+			}
+			resMsg.BuildRouter(modules.DeviceControllerModuleName, constants.GroupTwin, resource, model.ResponseOperation)
+			resMsg.Content = commonconst.MessageSuccessfulContent
+			err = uc.messageLayer.Response(*resMsg)
+			if err != nil {
+				klog.Warningf("Message: %s process failure, response failed with error: %s", msg.GetID(), err)
+				continue
+			}
+			klog.Infof("Message: %s process successfully", msg.GetID())
+		}
+	}
+}
+
+func (uc *UpstreamController) unmarshalDeviceDiscoveryMessage(msg model.Message) (*types.DeviceDiscovery, error) {
+	contentData, err := msg.GetContentData()
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Println(string(contentData))
+	discoveryData := &types.DeviceDiscovery{}
+	if err := json.Unmarshal(contentData, discoveryData); err != nil {
+		return nil, err
+	}
+	return discoveryData, nil
 }
 
 // NewUpstreamController create UpstreamController from config

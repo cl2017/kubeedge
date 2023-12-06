@@ -67,6 +67,9 @@ type DMICache struct {
 }
 
 func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterRequest) (*pb.MapperRegisterResponse, error) {
+	fmt.Println("----------ReportDeviceDiscovery----------")
+	ReportDeviceDiscovery(ctx)
+	fmt.Println("----------ReportDeviceDiscovery END----------")
 	if !s.limiter.Allow() {
 		return nil, fmt.Errorf("fail to register mapper because of too many request: %s", in.Mapper.Name)
 	}
@@ -175,6 +178,69 @@ func CreateMessageTwinUpdate(twin *pb.Twin) ([]byte, error) {
 	return msg, err
 }
 
+func ReportDeviceDiscovery(ctx context.Context) (*pb.ReportDeviceStatusResponse, error) {
+
+	msg, _ := CreateMessageDeviceDiscovery()
+	handleDeviceDiscovery(msg)
+
+	return &pb.ReportDeviceStatusResponse{}, nil
+}
+
+func handleDeviceDiscovery(payload []byte) {
+	deviceID := util.GetResourceID("kubeedge", "111")
+	topic := dtcommon.DeviceETPrefix + deviceID + dtcommon.TwinETUpdateSuffix
+	target := modules.TwinGroup
+	resource := base64.URLEncoding.EncodeToString([]byte(topic))
+	// routing key will be $hw.<project_id>.events.user.bus.response.cluster.<cluster_id>.node.<node_id>.<base64_topic>
+	message := beehiveModel.NewMessage("").BuildRouter(modules.BusGroup, modules.UserGroup,
+		resource, messagepkg.OperationResponse).FillBody(string(payload))
+
+	beehiveContext.SendToGroup(target, *message)
+
+	//dtContexts, _ := dtcontext.InitDTContext()
+	//
+	//klog.Infof("discovery to cloud")
+	//resource := "device/" + deviceID + dtcommon.TwinETEdgeSyncSuffix
+	//dtContexts.Send("",
+	//	dtcommon.SendToCloud,
+	//	dtcommon.CommModule,
+	//	dtContexts.BuildModelMessage("resource", "", resource, beehiveModel.UpdateOperation, payload))
+}
+
+// CreateMessageDeviceDiscovery create device discovery message.
+func CreateMessageDeviceDiscovery() ([]byte, error) {
+	discovery := types.DeviceDiscovery{
+		Name:         "discovered-device",
+		NodeName:     deviceconfig.Get().NodeName,
+		ModelName:    "modelName",
+		ProtocolName: "modbus",
+		ConfigData: map[string]interface{}{
+			"a": "b",
+		},
+		Properties: []v1beta1.DeviceProperty{
+			{
+				Name: "temp",
+				Desired: v1beta1.TwinProperty{
+					Value:    "50",
+					Metadata: nil,
+				},
+				Visitors: v1beta1.VisitorConfig{
+					ProtocolName: "modbus",
+					ConfigData: &v1beta1.CustomizedValue{Data: map[string]interface{}{
+						"a": "b",
+					}},
+				},
+				ReportCycle:   1000,
+				CollectCycle:  1000,
+				ReportToCloud: true,
+			},
+		},
+	}
+
+	msg, err := json.Marshal(discovery)
+	return msg, err
+}
+
 func StartDMIServer(cache *DMICache) {
 	var DMISockPath string
 	if deviceconfig.Get().DeviceTwin.DMISockPath != "" {
@@ -202,7 +268,6 @@ func StartDMIServer(cache *DMICache) {
 		dmiCache: cache,
 	})
 	reflection.Register(s)
-
 	if err := s.Serve(lis); err != nil {
 		klog.Errorf("failed to start DMI Server with err: %v", err)
 		return

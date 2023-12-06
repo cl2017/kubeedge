@@ -1,5 +1,7 @@
 package types
 
+import "github.com/kubeedge/kubeedge/pkg/apis/devices/v1beta1"
+
 // Device the struct of device
 type Device struct {
 	ID          string              `json:"id,omitempty"`
@@ -105,4 +107,13 @@ type TwinDoc struct {
 type DeviceTwinUpdate struct {
 	BaseMessage
 	Twin map[string]*MsgTwin `json:"twin"`
+}
+
+type DeviceDiscovery struct {
+	Name         string
+	NodeName     string
+	ModelName    string
+	ProtocolName string
+	ConfigData   map[string]interface{}
+	Properties   []v1beta1.DeviceProperty
 }

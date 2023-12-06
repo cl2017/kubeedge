@@ -42,6 +42,7 @@ const (
 	ResourceDevice               = "device"
 	ResourceTypeTwinEdgeUpdated  = "twin/edge_updated"
 	ResourceTypeMembershipDetail = "membership/detail"
+	ResourceTypeDeviceDiscovery  = "device/discovery"
 )
 
 // BuildResource return a string as "beehive/pkg/core/model".Message.Router.Resource
@@ -140,7 +141,7 @@ func GetDeviceID(resource string) (string, error) {
 // GetResourceType returns the resourceType of message received from edge
 func GetResourceTypeForDevice(resource string) (string, error) {
 	if strings.Contains(resource, ResourceTypeTwinEdgeUpdated) {
-		return ResourceTypeTwinEdgeUpdated, nil
+		return ResourceTypeDeviceDiscovery, nil
 	} else if strings.Contains(resource, ResourceTypeMembershipDetail) {
 		return ResourceTypeMembershipDetail, nil
 	}

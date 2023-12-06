@@ -152,6 +152,15 @@ func dealTwinUpdate(context *dtcontext.DTContext, resource string, msg interface
 
 // Updated update the snapshot
 func Updated(context *dtcontext.DTContext, deviceID string, payload []byte) {
+	klog.Infof("Deal sync result of device %s: sync with cloud", deviceID)
+	resource := "device/" + deviceID + dtcommon.TwinETEdgeSyncSuffix
+	context.Send("",
+		dtcommon.SendToCloud,
+		dtcommon.CommModule,
+		context.BuildModelMessage("resource", "", resource, model.UpdateOperation, string(payload)))
+
+	return
+
 	result := []byte("")
 	msg, err := dttype.UnmarshalDeviceTwinUpdate(payload)
 	if err != nil {

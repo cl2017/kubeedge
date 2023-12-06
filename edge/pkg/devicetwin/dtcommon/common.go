@@ -53,6 +53,8 @@ const (
 	DeviceETStateUpdateResultSuffix = "/state/update/result"
 	// DeviceETStateGetSuffix the topic suffix for device state get event
 	DeviceETStateGetSuffix = "/state/get"
+	// DeviceETDiscovery the topic suffix for device discovery
+	DeviceETDiscovery = "/discovery"
 
 	// MemDetailResult membership detail result
 	MemDetailResult = "MemDetailResult"

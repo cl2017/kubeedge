@@ -90,6 +90,7 @@ func initEventActionMap() {
 	EventActionMap[dtcommon.DeviceETPrefix][dtcommon.DeviceETStateGetSuffix] = dtcommon.DeviceStateGet
 	EventActionMap[dtcommon.DeviceETPrefix][dtcommon.DeviceETUpdatedSuffix] = dtcommon.DeviceUpdated
 	EventActionMap[dtcommon.DeviceETPrefix][dtcommon.DeviceETStateUpdateSuffix] = dtcommon.DeviceStateUpdate
+	EventActionMap[dtcommon.DeviceETPrefix][dtcommon.DeviceETDiscovery] = dtcommon.MetaDeviceOperation
 	EventActionMap[dtcommon.DeviceETPrefix][dtcommon.TwinETUpdateSuffix] = dtcommon.TwinUpdate
 	EventActionMap[dtcommon.DeviceETPrefix][dtcommon.TwinETCloudSyncSuffix] = dtcommon.TwinCloudSync
 	EventActionMap[dtcommon.DeviceETPrefix][dtcommon.TwinETGetSuffix] = dtcommon.TwinGet
@@ -212,7 +213,7 @@ func classifyMsg(message *dttype.DTMessage) bool {
 				return false
 			}
 		} else {
-			identity = splitString[idLoc]
+			identity = splitString[idLoc] + "/" + splitString[idLoc+1]
 			loc := strings.Index(topic, identity)
 			nextLoc := loc + len(identity)
 			prefix := topic[0:loc]
